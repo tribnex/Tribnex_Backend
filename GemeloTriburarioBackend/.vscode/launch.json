@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "GemeloTriburarioBackendApplication",
+            "request": "launch",
+            "mainClass": "GemeloApp.GemeloTriburarioBackend.GemeloTriburarioBackendApplication",
+            "projectName": "GemeloTriburarioBackend",
+            "env": {
+                "MAIL_PASSWORD": "ajpnvfzkxjkqrbsk",
+                "AUTH_SECRET": "ac353b83dbb4ef84f9612433d14bb72d78285ef707dfc08dda6cd5d94ce436cd"
+            }
+        }
+    ]
+}
