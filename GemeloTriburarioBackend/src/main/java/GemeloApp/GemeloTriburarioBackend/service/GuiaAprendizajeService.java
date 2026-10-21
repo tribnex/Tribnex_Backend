@@ -5,13 +5,8 @@ import GemeloApp.GemeloTriburarioBackend.repository.GuiaAprendizajeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.UUID;
 import java.util.List;
 
 @Service
@@ -19,9 +14,7 @@ import java.util.List;
 public class GuiaAprendizajeService {
 
     private final GuiaAprendizajeRepository repository;
-
-        @Value("${app.upload.dir}")
-    private String uploadDir;
+    private final ArchivoStorageService storage;
 
     /**
      * Guarda un archivo de contenido (video o documento) subido desde el dispositivo
@@ -29,29 +22,9 @@ public class GuiaAprendizajeService {
      * particular: el admin decide después en qué guía usar esa URL.
      */
     public String subirArchivoContenido(MultipartFile archivo) {
-        if (archivo == null || archivo.isEmpty()) {
-            throw new IllegalArgumentException("No se recibió ningún archivo");
-        }
-        try {
-            Path carpeta = Path.of(uploadDir, "guias");
-            Files.createDirectories(carpeta);
-
-            String extension = "";
-            String nombreOriginal = archivo.getOriginalFilename();
-            if (nombreOriginal != null && nombreOriginal.contains(".")) {
-                extension = nombreOriginal.substring(nombreOriginal.lastIndexOf('.'));
-            }
-            String nombreArchivo = UUID.randomUUID() + extension;
-
-            Path destino = carpeta.resolve(nombreArchivo);
-            Files.copy(archivo.getInputStream(), destino);
-
-            return "/uploads/guias/" + nombreArchivo;
-
-        } catch (IOException e) {
-            throw new IllegalStateException("No se pudo guardar el archivo: " + e.getMessage(), e);
-        }
+        return storage.guardar(archivo, "guias");
     }
+
     @Transactional(readOnly = true)
     public List<GuiaAprendizaje> listar() {
         return repository.findAll();
@@ -63,30 +36,55 @@ public class GuiaAprendizajeService {
     }
 
     @Transactional
-public GuiaAprendizaje crear(GuiaAprendizaje datos) {
-    datos.setIdGuia(null);
-    if (datos.getNivel() == null || datos.getNivel().isBlank()) {
-        datos.setNivel("PRINCIPIANTE");
+    public GuiaAprendizaje crear(GuiaAprendizaje datos) {
+        datos.setIdGuia(null);
+        if (datos.getNivel() == null || datos.getNivel().isBlank()) {
+            datos.setNivel("PRINCIPIANTE");
+        }
+        return repository.save(datos);
     }
-    return repository.save(datos);
-}
 
-@Transactional
-public GuiaAprendizaje editar(Long id, GuiaAprendizaje datos) {
-    GuiaAprendizaje existente = obtenerOFallar(id);
-    datos.setIdGuia(existente.getIdGuia());
-    if (datos.getNivel() == null || datos.getNivel().isBlank()) {
-        datos.setNivel("PRINCIPIANTE");
+    @Transactional
+    public GuiaAprendizaje editar(Long id, GuiaAprendizaje datos) {
+        GuiaAprendizaje existente = obtenerOFallar(id);
+        String urlAnterior = existente.getContenidoUrl();
+
+        datos.setIdGuia(existente.getIdGuia());
+        if (datos.getNivel() == null || datos.getNivel().isBlank()) {
+            datos.setNivel("PRINCIPIANTE");
+        }
+        GuiaAprendizaje guardada = repository.save(datos);
+
+        // Si el contenido cambió, el archivo viejo ya no se usa en esta guía.
+        if (urlAnterior != null && !urlAnterior.equals(guardada.getContenidoUrl())) {
+            borrarSiYaNadieLoUsa(urlAnterior);
+        }
+        return guardada;
     }
-    return repository.save(datos);
-}
 
     @Transactional
     public void eliminar(Long id) {
-        if (!repository.existsById(id)) {
-            throw new IllegalArgumentException("GuiaAprendizaje no encontrado: " + id);
-        }
+        GuiaAprendizaje guia = obtenerOFallar(id);
+        String urlContenido = guia.getContenidoUrl();
+
         repository.deleteById(id);
+        repository.flush();
+
+        borrarSiYaNadieLoUsa(urlContenido);
+    }
+
+    /**
+     * Borra el archivo (después del commit) solo si ninguna otra guía lo sigue
+     * usando. Evita romper una guía si dos apuntan al mismo archivo.
+     */
+    private void borrarSiYaNadieLoUsa(String url) {
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        repository.flush(); // asegura que la BD ya refleje el cambio antes de contar usos
+        if (!repository.existsByContenidoUrl(url)) {
+            storage.borrarDespuesDeCommit(url);
+        }
     }
 
     private GuiaAprendizaje obtenerOFallar(Long id) {

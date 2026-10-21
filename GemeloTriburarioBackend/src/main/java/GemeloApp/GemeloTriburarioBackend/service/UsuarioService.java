@@ -3,27 +3,20 @@ package GemeloApp.GemeloTriburarioBackend.service;
 import GemeloApp.GemeloTriburarioBackend.model.Usuario;
 import GemeloApp.GemeloTriburarioBackend.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class UsuarioService {
 
     private final UsuarioRepository usuarioRepository;
+    private final ArchivoStorageService storage;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-
-    @Value("${app.upload.dir}")
-    private String uploadDir;
 
     @Transactional(readOnly = true)
     public List<Usuario> listar() {
@@ -57,13 +50,20 @@ public class UsuarioService {
         usuario.setTelefono(datos.getTelefono());
         usuario.setFechaNacimiento(datos.getFechaNacimiento());
         usuario.setDireccion(datos.getDireccion());
+
         if (datos.getFotoUrl() != null) {
+            String fotoAnterior = usuario.getFotoUrl();
             usuario.setFotoUrl(datos.getFotoUrl());
+            // Si la foto cambió (o se limpió), el archivo anterior ya no sirve.
+            if (fotoAnterior != null && !fotoAnterior.equals(datos.getFotoUrl())) {
+                storage.borrarDespuesDeCommit(fotoAnterior);
+            }
         }
+
         if (datos.getContrasenaHash() != null && !datos.getContrasenaHash().isBlank()) {
             usuario.setContrasenaHash(passwordEncoder.encode(datos.getContrasenaHash()));
         }
-                if (datos.getActivo() != null) {
+        if (datos.getActivo() != null) {
             usuario.setActivo(datos.getActivo());
         }
         return usuarioRepository.save(usuario);
@@ -71,10 +71,13 @@ public class UsuarioService {
 
     @Transactional
     public void eliminar(Long id) {
-        if (!usuarioRepository.existsById(id)) {
-            throw new IllegalArgumentException("Usuario no encontrado: " + id);
-        }
+        Usuario usuario = obtenerOFallar(id);
+        String fotoUrl = usuario.getFotoUrl();
+
         usuarioRepository.deleteById(id);
+
+        // Se borra del disco solo si la BD confirmó el borrado.
+        storage.borrarDespuesDeCommit(fotoUrl);
     }
 
     private Usuario obtenerOFallar(Long id) {
@@ -103,8 +106,8 @@ public class UsuarioService {
     }
 
     /**
-     * Guarda el archivo de foto en disco (uploads/perfil/) y actualiza
-     * fotoUrl del usuario con la ruta publica para abrirla en el navegador.
+     * Guarda la foto nueva en uploads/perfil/, actualiza fotoUrl y borra
+     * la foto anterior del usuario (si tenía una local).
      */
     @Transactional
     public Usuario actualizarFoto(Long id, MultipartFile archivo) {
@@ -118,25 +121,10 @@ public class UsuarioService {
             throw new IllegalArgumentException("El archivo debe ser una imagen");
         }
 
-        try {
-            Path carpeta = Path.of(uploadDir, "perfil");
-            Files.createDirectories(carpeta);
+        String fotoAnterior = usuario.getFotoUrl();
+        String fotoNueva = storage.reemplazar(fotoAnterior, archivo, "perfil");
 
-            String extension = "";
-            String nombreOriginal = archivo.getOriginalFilename();
-            if (nombreOriginal != null && nombreOriginal.contains(".")) {
-                extension = nombreOriginal.substring(nombreOriginal.lastIndexOf('.'));
-            }
-            String nombreArchivo = UUID.randomUUID() + extension;
-
-            Path destino = carpeta.resolve(nombreArchivo);
-            Files.copy(archivo.getInputStream(), destino);
-
-            usuario.setFotoUrl("/uploads/perfil/" + nombreArchivo);
-            return usuarioRepository.save(usuario);
-
-        } catch (IOException e) {
-            throw new IllegalStateException("No se pudo guardar la foto: " + e.getMessage(), e);
-        }
+        usuario.setFotoUrl(fotoNueva);
+        return usuarioRepository.save(usuario);
     }
 }
