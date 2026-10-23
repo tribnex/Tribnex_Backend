@@ -6,8 +6,6 @@ import GemeloApp.GemeloTriburarioBackend.repository.TokenRecuperacionRepository;
 import GemeloApp.GemeloTriburarioBackend.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,7 +19,7 @@ public class RecuperacionService {
 
     private final UsuarioRepository usuarioRepository;
     private final TokenRecuperacionRepository tokenRepository;
-    private final JavaMailSender mailSender;
+    private final EmailService emailService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final SecureRandom random = new SecureRandom();
 
@@ -73,17 +71,14 @@ public class RecuperacionService {
     }
 
     private String generarCodigo() {
-        int numero = 100000 + random.nextInt(900000); // siempre 6 digitos
+        int numero = 100000 + random.nextInt(900000); 
         return String.valueOf(numero);
     }
 
-    private void enviarCorreo(String correoDestino, String codigo) {
-        SimpleMailMessage mensaje = new SimpleMailMessage();
-        mensaje.setTo(correoDestino);
-        mensaje.setSubject("Codigo de recuperacion - Tribnex");
-        mensaje.setText("Tu codigo para restablecer tu contrasena es: " + codigo
-                + "\n\nExpira en " + minutosExpiracion + " minutos."
-                + "\n\nSi no solicitaste esto, ignora este correo.");
-        mailSender.send(mensaje);
-    }
+   private void enviarCorreo(String correoDestino, String codigo) {
+    String texto = "Tu codigo para restablecer tu contrasena es: " + codigo
+            + "\n\nExpira en " + minutosExpiracion + " minutos."
+            + "\n\nSi no solicitaste esto, ignora este correo.";
+    emailService.enviar(correoDestino, "Codigo de recuperacion - Tribnex", texto);
+}
 }
