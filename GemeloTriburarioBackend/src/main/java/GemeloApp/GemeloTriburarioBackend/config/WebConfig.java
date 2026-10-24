@@ -7,6 +7,8 @@ import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
@@ -14,10 +16,25 @@ public class WebConfig implements WebMvcConfigurer {
     @Value("${app.upload.dir}")
     private String uploadDir;
 
+    /**
+     * Páginas (frontends) autorizadas a llamar a la API, separadas por coma.
+     * Se define con la variable de entorno CORS_ORIGINS (ver application.properties).
+     * Ejemplo: https://tudominio.com,https://www.tudominio.com,https://tribnex.netlify.app
+     */
+    @Value("${app.cors.origins:}")
+    private String[] origenesPermitidos;
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        List<String> patrones = new ArrayList<>(List.of("http://localhost:*", "http://127.0.0.1:*"));
+        for (String origen : origenesPermitidos) {
+            if (origen != null && !origen.isBlank()) {
+                patrones.add(origen.trim());
+            }
+        }
+
         registry.addMapping("/api/**")
-                .allowedOriginPatterns("http://localhost:*", "http://127.0.0.1:*", "https://gemelotributario.netlify.app")
+                .allowedOriginPatterns(patrones.toArray(String[]::new))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true);
