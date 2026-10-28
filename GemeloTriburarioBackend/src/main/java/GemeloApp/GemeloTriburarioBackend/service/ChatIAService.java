@@ -21,6 +21,7 @@ public class ChatIAService {
     private final ObligacionUsuarioRepository obligacionUsuarioRepository;
     private final FragmentoConocimientoChatRepository fragmentoRepository;
     private final ConsultaChatRepository consultaChatRepository;
+    private final LimiteChat limiteChat;
 
     private static final DateTimeFormatter FECHA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
@@ -29,8 +30,15 @@ public class ChatIAService {
         Usuario usuario = usuarioRepository.findById(idUsuario)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado: " + idUsuario));
 
-        String systemPrompt = construirSystemPrompt(usuario);
-        String respuesta = geminiApiClient.preguntar(systemPrompt, pregunta);
+        limiteChat.registrarOFallar(idUsuario);
+String systemPrompt = construirSystemPrompt(usuario);
+String respuesta;
+try {
+    respuesta = geminiApiClient.preguntar(systemPrompt, pregunta);
+} catch (RuntimeException e) {
+    limiteChat.devolver(idUsuario);
+    throw e;
+}
 
         ConsultaChat consulta = ConsultaChat.builder()
                 .usuario(usuario)
